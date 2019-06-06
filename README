@@ -1,0 +1,59 @@
+To build, you'll need:
+
+    build-essential libseccomp-dev libseccomp2
+
+To build:
+
+    make
+
+You will get a file libdaemonhook.so.
+
+To use the hook, you need to set some environment variables:
+
+  LD_PRELOAD must point to libdaemonhook.so (optionally, LD_AUDIT can be used instead. This is mutually exclusive with 
+    any part of libdaemonhook.so that tries to override libc functions, such as the trap for close() which is used for 
+    the AFL_FORKSRV_INIT functionality.) For AFL, you can use AFL_LD_PRELOAD. For Qemu, you SHOULD NOT use QEMU_LD_PRELOAD,
+    as this will attempt to hook the process inside of qemu's translation layer, instead of hooking the Qemu process itself.
+    See the "gotcha" about Qemu user mode for more information.
+
+  DAEMON_HOOK_TRANSCRIPT must contain the name of the transcript file to use
+
+Optionally:
+
+  DAEMON_HOOK_ONLY can contain a basename to target. other programs will not be injected. This is useful for debugging
+    with strace, gdb, or afl-fuzz. Note with afl-fuzz -Q the basename is afl-qemu-trace, not the process name. This 
+    should really only matter if you're debugging libdaemonhook itself.
+
+  DAEMON_HOOK_DEBUG can be set the verbosity of the hooking debugging. The default is 0, positive is more verbose, 
+    negative is less. For most use cases, the default should be sufficient.
+
+  DAEMON_HOOK_FORKSRV_INIT will cause daemon-hook to hook close(3) and initialize when close is called on FD 198 instead of as a 
+    static initializer. This can be used to initialize daemon-hook after afl's fork server magic, and is especially 
+    useful for afl's qemu mode.
+
+  DAEMON_HOOK_UDP can be set (to 1) to hook UDP sockets in addition to TCP sockets.
+
+TODO:
+
+  - Implementation for epoll, which many "real" servers use.
+  - Handling mix-mode poll.
+  - Implementation for non-listening sockets (outgoing connections)
+  - Proper deterministic sequencing. Right now set cpu affinity to one core, but this doesn't enforce any nice ordering.
+  - (Nice to have) SSL capability.
+  - reduce number of configuration options, or at least number required for "regular" operation.
+  - it would be very cool to have inverse ti-di (https://community.eveonline.com/news/dev-blogs/introducing-time-dilation-tidi/)
+
+Gotchas:
+
+  - Qemu user mode does not currently implement signaling for x86_64. See https://lists.gnu.org/archive/html/qemu-devel/2016-04/msg01790.html
+    This means that afl-fuzz -Q mode will not work with daemon-hook if using QEMU_LD_PRELOAD. It will work fine if using LD_PRELOAD.
+    I have a patch for qemu that adds x86_64 qemu user mode signaling, but need to try and get it upstreamed.
+
+  - In order to debug the called process in gdb you will need: handle SIGSYS nostop noprint
+    Note that you can pass this on the command line with -ex "handle SIGSYS nostop noprint"
+
+  - The transcript format is designed to be amenable to fuzzing, but probably isn't anywhere near optimal. I suspect 
+    designing container file formats to be permeable for fuzzing the contents is an open research problem.
+
+  - Qemu user mode does not currently implement select correctly for x86_64. I have a patch I need to try and get upstreamed.
+
